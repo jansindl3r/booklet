@@ -1,61 +1,85 @@
-from PyPDF2 import PdfFileReader, PdfFileWriter
-from PyPDF2.pdf import PageObject
+try:
+    from pypdf import PdfFileReader, PdfFileWriter
+    from pypdf.pdf import PageObject
+    from pypdf.generic import RectangleObject
+except:
+    print(
+        "please install PyPDF4 with pip install git+https://github.com/claird/PyPDF4.git@fc6cf15c736332248783158241206946eff94899"
+    )
+    quit()
+
+import argparse
 from math import ceil, floor
-
-# change file_name
-file_name = input('name of your pdf file')
-
-if file_name.endswith('.pdf'):
-	file_name = file_name[:file_name.rfind('.pdf')]
-
-print(file_name)
+from typing import List, Generator, Any
+from pathlib import Path
 
 
-file = PdfFileReader(open(file_name + '.pdf','rb'))
-pages_count = len(file.pages)
+class Args:
+    def __init__(self) -> None:
+        self.parser = argparse.ArgumentParser(description="generate bookleted pdf")
+        self.addArguments()
 
-pages = pages_count
-if pages % 4 != 0:
-    pages_count += 4 - pages_count % 4
+    def addArguments(self) -> None:
+        self.parser.add_argument(dest="docPath", type=Path, help="path of input pdf")
+        self.parser.add_argument(
+            "-o", "--out", type=Path, dest="outPath", help="output path of the file"
+        )
+        self.args = self.parser.parse_args()
 
-print(pages, pages_count)
+    @property
+    def docPath(self) -> str:
+        return str(self.args.docPath.absolute())
 
-half = int(floor(pages_count/2))
+    @property
+    def outPath(self) -> Any:
+        return str(self.args.outPath.absolute()) if self.args.outPath else None
 
-sequences = []
 
-for page in range(0, int(pages_count/2), 1):
-	if page % 2 == 0:
-		sequences.append([half - page, half + 1 + page])
-	if page % 2 != 0:
-		sequences.append([half + 1 + page, half - page])
+class Booklet:
+    def __init__(self, args: Args, str="booklet.pdf", bind: str = "left") -> None:
 
-print(sequences)
-width = file.getPage(0).mediaBox.getWidth()
-height = file.getPage(0).mediaBox.getHeight()
+        self.doc = PdfFileReader(args.docPath)
+        self.numPages = self.doc.numPages
+        assert (
+            not self.numPages % 4
+        ), "your source pdf must have number of pages divisible by 4"
+        outPath = args.outPath if args.outPath else "booklet.pdf"
+        self.writer = PdfFileWriter(outPath)
+        self.bind = bind
 
-writer = PdfFileWriter()
+    def yieldSequence(self) -> Generator[List[int], None, None]:
+        for i in range(0, self.numPages // 2):
+            currentPage = [self.numPages // 2 - i - 1, self.numPages // 2 + i]
+            if self.bind == "right" and not i % 2:
+                currentPage = currentPage[::-1]
+            if i % 2 and self.bind != "right":
+                currentPage = currentPage[::-1]
+            yield currentPage
 
-for seq in sequences:
-	print(seq)
-	translated_page = PageObject.createBlankPage(None, width*2, height)
+    def makeBooklet(self) -> None:
+        for spread in self.yieldSequence():
+            print(f"processing {spread}")
+            width: List[int]
+            height: List[int]
+            width, height = [], []
+            for i, pageNum in enumerate(spread):
+                width.append(self.doc.getPage(pageNum).mediaBox.getWidth())
+                height.append(self.doc.getPage(pageNum).mediaBox.getHeight())
+            sheet = PageObject.createBlankPage(None, sum(width), max(height))
+            for i, pageNum in enumerate(spread):
+                shift = 0 if i == 0 else width[i - 1]
+                page = self.doc.getPage(pageNum)
+                sheet.mergeScaledTranslatedPage(page, 1, shift, 0)
+            self.writer.addPage(sheet)
 
-	if seq[0] > pages or seq[0] < 0:
-		second_page = PageObject.createBlankPage(None, width, height)
-	else:
-		second_page = file.getPage(seq[0] - 1)
+    def writeBooklet(self) -> None:
+        self.writer.write()
+        print("booklet is done")
 
-	if seq[1] > pages or seq[1] < 0:
-		first_page = PageObject.createBlankPage(None, width, height)
-	else:
-		first_page = file.getPage(seq[1] - 1)
 
-	
-	translated_page.mergeScaledTranslatedPage(first_page, 1, width, 0)  # -400 is approximate mid-page
+if __name__ == "__main__":
 
-	translated_page.mergePage(second_page)
-
-	writer.addPage(translated_page)
-
-with open(file_name + '_booklet.pdf', 'wb') as f:
-	writer.write(f)
+    args = Args()
+    booklet = Booklet(args)
+    booklet.makeBooklet()
+    booklet.writeBooklet()
