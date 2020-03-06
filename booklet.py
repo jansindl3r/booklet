@@ -13,7 +13,6 @@ from math import ceil, floor
 from typing import List, Generator, Any
 from pathlib import Path
 
-
 class Args:
     def __init__(self) -> None:
         self.parser = argparse.ArgumentParser(description="generate bookleted pdf")
@@ -75,7 +74,6 @@ class Booklet:
     def writeBooklet(self) -> None:
         self.writer.write()
         print("booklet is done")
-
 
 if __name__ == "__main__":
 
